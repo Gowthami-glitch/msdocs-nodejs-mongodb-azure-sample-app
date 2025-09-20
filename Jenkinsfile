@@ -59,11 +59,13 @@ pipeline {
     }
 
     post {
-        success {
-            echo "✅ Deployment successful! Browse your app at: https://$WEB_APP_NAME.azurewebsites.net"
-        }
-        failure {
-            echo "❌ Deployment failed. Please check logs."
-        }
+    success {
+        echo "✅ Deployment successful!"
+        echo "🌐 Visit your app at: http://lucky148715-fgbxfxehg7frcuhp.canadacentral-01.azurewebsites.net"
     }
+    failure {
+        echo "❌ Deployment failed. Please check logs."
+    }
+}
+
 }
