@@ -1,59 +1,76 @@
 pipeline {
-  agent any
-  tools { nodejs "Node20" }
+    agent any
 
-  parameters {
-    string(name: 'AZ_RG',  defaultValue: 'rg-node-mongo-canadacentral', description: 'Azure resource group')
-    string(name: 'AZ_APP', defaultValue: 'lucky148715', description: 'Azure Web App name')
-    booleanParam(name: 'SET_APPSETTINGS_ONCE', defaultValue: true, description: 'Set SCM_DO_BUILD_DURING_DEPLOYMENT the first time')
-  }
-
-  triggers { githubPush() }
-
-  options { ansiColor('xterm'); timestamps(); durabilityHint('PERFORMANCE_OPTIMIZED') }
-
-  stages {
-    stage('Checkout') { steps { checkout scm } }
-    stage('Install dependencies') { steps { sh 'npm ci' } }
-    stage('Package app (zip)') {
-      steps {
-        sh '''
-          rm -f app.zip || true
-          zip -r app.zip . -x ".git/*" ".github/*" "node_modules/*" "tests/*"
-          ls -lh app.zip
-        '''
-        archiveArtifacts artifacts: 'app.zip', fingerprint: true
-      }
+    environment {
+        NODEJS_HOME = tool name: 'NodeJS 20', type: 'jenkins.plugins.nodejs.tools.NodeJSInstallation'
+        AZURE_SP = credentials('azure-sp')
+        AZURE_TENANT = credentials('azure-tenant')
+        RESOURCE_GROUP = 'Project11RG'
+        WEB_APP_NAME = 'lucky148715'
     }
-    stage('Azure Login') {
-      steps {
-        withCredentials([
-          usernamePassword(credentialsId: 'azure-sp', usernameVariable: 'AZ_APP_ID', passwordVariable: 'AZ_PASSWORD'),
-          string(credentialsId: 'azure-tenant', variable: 'AZ_TENANT')
-        ]) {
-          sh '''
-            az logout || true
-            az login --service-principal -u "$AZ_APP_ID" -p "$AZ_PASSWORD" --tenant "$AZ_TENANT"
-            az account show
-          '''
+
+    stages {
+        stage('Checkout Source') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Gowthami-glitch/msdocs-nodejs-mongodb-azure-sample-app.git'
+            }
         }
-      }
+
+        stage('Install Dependencies') {
+            steps {
+                withEnv(["PATH+NODE=${NODEJS_HOME}/bin"]) {
+                    sh 'npm install'
+                }
+            }
+        }
+
+        stage('Package App') {
+            steps {
+                sh 'zip -r app.zip *'
+            }
+        }
+
+        stage('Publish Artifact') {
+            steps {
+                archiveArtifacts artifacts: 'app.zip', fingerprint: true
+            }
+        }
+
+        stage('Download Artifact') {
+            steps {
+                copyArtifacts(projectName: env.JOB_NAME, filter: 'app.zip', selector: lastSuccessful())
+                sh 'unzip -o app.zip'
+            }
+        }
+
+        stage('Azure Login') {
+            steps {
+                sh '''
+                az logout || true
+                az login --service-principal -u "$AZURE_SP_USR" -p "$AZURE_SP_PSW" --tenant "$AZURE_TENANT" --output none
+                '''
+            }
+        }
+
+        stage('Deploy to Azure Web App') {
+            steps {
+                sh '''
+                az webapp deploy \
+                  --resource-group $RESOURCE_GROUP \
+                  --name $WEB_APP_NAME \
+                  --src-path app.zip \
+                  --type zip
+                '''
+            }
+        }
     }
-    stage('App settings (first run)') {
-      when { expression { return params.SET_APPSETTINGS_ONCE } }
-      steps {
-        sh '''
-          az webapp config appsettings set \
-            --resource-group "$AZ_RG" --name "$AZ_APP" \
-            --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true
-        '''
-      }
+
+    post {
+        success {
+            echo "✅ Deployment successful! Browse your app at: https://$WEB_APP_NAME.azurewebsites.net"
+        }
+        failure {
+            echo "❌ Deployment failed. Please check logs."
+        }
     }
-    stage('Deploy to Azure App Service') {
-      steps {
-        sh 'az webapp deploy --resource-group "$AZ_RG" --name "$AZ_APP" --src-path app.zip'
-      }
-    }
-  }
-  post { always { cleanWs() } }
 }
