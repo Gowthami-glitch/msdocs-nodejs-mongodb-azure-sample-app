@@ -36,13 +36,6 @@ pipeline {
             }
         }
 
-        stage('Download Artifact') {
-            steps {
-                copyArtifacts(projectName: env.JOB_NAME, filter: 'app.zip', selector: lastSuccessful())
-                sh 'unzip -o app.zip'
-            }
-        }
-
         stage('Azure Login') {
             steps {
                 sh '''
